@@ -1,0 +1,34 @@
+name: TVE Pipedrive Daily Report
+
+on:
+  # Todos los días a las 12:00 UTC = 9:00am Argentina (GMT-3)
+  schedule:
+    - cron: "0 12 * * *"
+
+  # Trigger manual para testing
+  workflow_dispatch:
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run agent
+        env:
+          PIPEDRIVE_API_TOKEN:   ${{ secrets.PIPEDRIVE_API_TOKEN }}
+          PIPEDRIVE_DOMAIN:      ${{ secrets.PIPEDRIVE_DOMAIN }}
+          TELEGRAM_BOT_TOKEN_CRM: ${{ secrets.TELEGRAM_BOT_TOKEN_CRM }}
+          TELEGRAM_CHAT_ID_CRM:   ${{ secrets.TELEGRAM_CHAT_ID_CRM }}
+        run: python agent.py
