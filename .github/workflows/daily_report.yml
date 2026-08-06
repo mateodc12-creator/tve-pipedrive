@@ -1,9 +1,14 @@
 name: TVE Pipedrive Daily Report
 
 on:
-  # Todos los días a las 12:00 UTC = 9:00am Argentina (GMT-3)
+  # 7:09 UTC = 4:09am Argentina (GMT-3). Se dispara temprano y con minuto
+  # no redondo a proposito: los schedules de GitHub Actions son best-effort
+  # y suelen atrasarse 3-6hs, sobre todo en horarios en punto (:00). El
+  # reporte igual cubre el dia calendario anterior completo sin importar
+  # a que hora corra, asi que arrancar temprano solo ayuda a que el
+  # atraso caiga lo mas cerca posible de la mañana.
   schedule:
-    - cron: "0 12 * * *"
+    - cron: "9 7 * * *"
 
   # Trigger manual para testing
   workflow_dispatch:
