@@ -9,8 +9,11 @@ import logging
 import os
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import requests
+
+ARG_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("pipedrive-agent")
@@ -141,16 +144,24 @@ def source_breakdown_lines(deals, title):
 
 # ── Reporte diario ──────────────────────────────────────────────────────────
 def build_daily_report(today):
-    start_today = datetime(today.year, today.month, today.day)
+    """`today` es el día (hora Argentina) en que se envía el reporte; los
+    datos que se muestran corresponden al día calendario anterior completo,
+    para que el resumen de "ayer" esté cerrado sin importar a qué hora corra
+    el workflow."""
+    report_day = today - timedelta(days=1)
+    start = datetime(report_day.year, report_day.month, report_day.day)
+    end = start + timedelta(days=1)
 
-    created = [d for d in fetch_since("add_time", start_today)
-               if datetime.strptime(d["add_time"], "%Y-%m-%d %H:%M:%S") >= start_today]
-    won = [d for d in fetch_since("won_time", start_today)
-           if d.get("won_time") and datetime.strptime(d["won_time"], "%Y-%m-%d %H:%M:%S") >= start_today]
-    lost = [d for d in fetch_since("lost_time", start_today)
-            if d.get("lost_time") and datetime.strptime(d["lost_time"], "%Y-%m-%d %H:%M:%S") >= start_today]
+    def in_range(time_field):
+        rows = fetch_since(time_field, start)
+        return [d for d in rows if d.get(time_field)
+                and start <= datetime.strptime(d[time_field], "%Y-%m-%d %H:%M:%S") < end]
 
-    lines = [f"📊 *Reporte diario Pipedrive — {today.strftime('%d/%m/%Y')}*", ""]
+    created = in_range("add_time")
+    won = in_range("won_time")
+    lost = in_range("lost_time")
+
+    lines = [f"📊 *Reporte diario Pipedrive — {report_day.strftime('%d/%m/%Y')}*", ""]
 
     lines.append(f"🆕 *Deals nuevos ({len(created)})*")
     if created:
@@ -161,10 +172,10 @@ def build_daily_report(today):
                 f"   Vendedor: {get_owner_name(d)} | Fuente: {get_lead_source(d)} | Producto: {product}"
             )
     else:
-        lines.append("_Sin deals nuevos hoy_")
+        lines.append("_Sin deals nuevos_")
     lines.append("")
 
-    lines.append(f"✅ *Ganados hoy ({len(won)})*")
+    lines.append(f"✅ *Ganados ({len(won)})*")
     if won:
         for d in won:
             lines.append(
@@ -172,18 +183,18 @@ def build_daily_report(today):
                 f"{get_owner_name(d)} | Fuente: {get_lead_source(d)}"
             )
     else:
-        lines.append("_Sin ganados hoy_")
+        lines.append("_Sin ganados_")
     lines.append("")
 
-    lines.append(f"❌ *Perdidos hoy ({len(lost)})*")
+    lines.append(f"❌ *Perdidos ({len(lost)})*")
     if lost:
         for d in lost:
             lines.append(f"• {d.get('title','(sin título)')} | {get_owner_name(d)} | Fuente: {get_lead_source(d)}")
     else:
-        lines.append("_Sin perdidos hoy_")
+        lines.append("_Sin perdidos_")
     lines.append("")
 
-    lines.append("📈 *Performance de canales (deals nuevos de hoy)*")
+    lines.append("📈 *Performance de canales (deals nuevos)*")
     if created:
         src_counter = Counter(get_lead_source(d) for d in created)
         for label, count in src_counter.most_common():
@@ -204,11 +215,11 @@ def build_daily_report(today):
         lines.append("")
         lines.append("💡 *Recomendaciones de data entry*")
         if sin_producto:
-            lines.append(f"• {len(sin_producto)} deal(s) de hoy sin producto cargado — avisar al equipo:")
+            lines.append(f"• {len(sin_producto)} deal(s) sin producto cargado — avisar al equipo:")
             for d in sin_producto:
                 lines.append(f"   - {d.get('title','(sin título)')}")
         if sin_fuente:
-            lines.append(f"• {len(sin_fuente)} deal(s) de hoy sin fuente cargada — avisar al equipo:")
+            lines.append(f"• {len(sin_fuente)} deal(s) sin fuente cargada — avisar al equipo:")
             for d in sin_fuente:
                 lines.append(f"   - {d.get('title','(sin título)')}")
 
@@ -461,7 +472,7 @@ def _send_error(fn, err):
 
 # ── Main ─────────────────────────────────────────────────────────────────
 def main():
-    today = date.today()
+    today = datetime.now(ARG_TZ).date()
     log.info(f"=== Pipedrive agent — {today} ===")
 
     try:
