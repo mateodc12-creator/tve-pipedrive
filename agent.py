@@ -104,7 +104,24 @@ def get_product_names(deal):
     rows = data.get("data") or []
     if not rows:
         return "-"
-    return ", ".join(p.get("name", "?") for p in rows)
+    return ", ".join(md_safe(p.get("name", "?")) for p in rows)
+
+
+def md_safe(text):
+    """Escapa caracteres que Telegram (parse_mode=Markdown legacy) interpreta como
+    entidades (_, *, `, [) en texto libre cargado por el equipo (titulos de deal,
+    nombres de producto) — sin esto, un titulo como "arqva_obra@yahoo.com.ar" tira
+    todo el mensaje abajo con 'Can't parse entities'."""
+    if not text:
+        return text
+    text = str(text)
+    for ch in ("\\", "_", "*", "`", "["):
+        text = text.replace(ch, f"\\{ch}")
+    return text
+
+
+def deal_title(deal):
+    return md_safe(deal.get("title") or "(sin título)")
 
 
 def fmt_money(deal):
@@ -168,7 +185,7 @@ def build_daily_report(today):
         for d in created:
             product = get_product_names(d)
             lines.append(
-                f"• {d.get('title','(sin título)')} — {fmt_money(d)}\n"
+                f"• {deal_title(d)} — {fmt_money(d)}\n"
                 f"   Vendedor: {get_owner_name(d)} | Fuente: {get_lead_source(d)} | Producto: {product}"
             )
     else:
@@ -179,7 +196,7 @@ def build_daily_report(today):
     if won:
         for d in won:
             lines.append(
-                f"• {d.get('title','(sin título)')} — {fmt_money(d)} | "
+                f"• {deal_title(d)} — {fmt_money(d)} | "
                 f"{get_owner_name(d)} | Fuente: {get_lead_source(d)}"
             )
     else:
@@ -189,7 +206,7 @@ def build_daily_report(today):
     lines.append(f"❌ *Perdidos ({len(lost)})*")
     if lost:
         for d in lost:
-            lines.append(f"• {d.get('title','(sin título)')} | {get_owner_name(d)} | Fuente: {get_lead_source(d)}")
+            lines.append(f"• {deal_title(d)} | {get_owner_name(d)} | Fuente: {get_lead_source(d)}")
     else:
         lines.append("_Sin perdidos_")
     lines.append("")
@@ -217,11 +234,11 @@ def build_daily_report(today):
         if sin_producto:
             lines.append(f"• {len(sin_producto)} deal(s) sin producto cargado — avisar al equipo:")
             for d in sin_producto:
-                lines.append(f"   - {d.get('title','(sin título)')}")
+                lines.append(f"   - {deal_title(d)}")
         if sin_fuente:
             lines.append(f"• {len(sin_fuente)} deal(s) sin fuente cargada — avisar al equipo:")
             for d in sin_fuente:
-                lines.append(f"   - {d.get('title','(sin título)')}")
+                lines.append(f"   - {deal_title(d)}")
 
     return "\n".join(lines)
 
@@ -445,10 +462,18 @@ def split_message(text, limit=TELEGRAM_MAX_CHARS):
 
 async def _send_async(token, chat_id, chunks):
     from telegram import Bot
+    from telegram.error import BadRequest
     bot = Bot(token=token)
     async with bot:
         for chunk in chunks:
-            await bot.send_message(chat_id=chat_id, text=chunk, parse_mode="Markdown")
+            try:
+                await bot.send_message(chat_id=chat_id, text=chunk, parse_mode="Markdown")
+            except BadRequest as e:
+                # Red de seguridad: si algun caracter se nos escapo (md_safe no lo
+                # cubria), mandamos el chunk como texto plano en vez de perder
+                # el reporte entero — mejor sin *negritas* que sin mensaje.
+                log.warning(f"Markdown parse fallo en un chunk, reintentando como texto plano: {e}")
+                await bot.send_message(chat_id=chat_id, text=chunk, parse_mode=None)
             await asyncio.sleep(0.5)
 
 
