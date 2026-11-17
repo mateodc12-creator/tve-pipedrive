@@ -1,0 +1,34 @@
+name: Keepalive
+
+# GitHub desactiva los workflows con schedule en repos publicos si pasan
+# 60 dias sin commits (asi se cayo el bot de Pipedrive el 1 nov 2026).
+# Este workflow hace un commit vacio cuando el ultimo commit tiene mas de
+# 40 dias, para resetear ese contador. Si hubo commits recientes, no hace nada.
+on:
+  schedule:
+    - cron: "17 9 * * 3"   # miercoles 6:17am ART
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Commit vacio si el repo lleva +40 dias sin actividad
+        run: |
+          last=$(git log -1 --format=%ct)
+          age_days=$(( ( $(date +%s) - last ) / 86400 ))
+          echo "Ultimo commit hace ${age_days} dias"
+          if [ "$age_days" -ge 40 ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "keepalive: evitar que GitHub desactive el cron por inactividad"
+            git push
+          fi
